@@ -1,6 +1,7 @@
 import userModel from "../models/user.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import transporter from "../config/emailConfig.js";
 
 let userController = async (req, res) => {
   const { name, email, password, password_confirmation, tc } = req.body;
@@ -24,12 +25,10 @@ let userController = async (req, res) => {
 
     // Check if passwords match
     if (password !== password_confirmation) {
-      return res
-        .status(400)
-        .send({
-          status: "Failed",
-          message: "Password and Confirm password do not match",
-        });
+      return res.status(400).send({
+        status: "Failed",
+        message: "Password and Confirm password do not match",
+      });
     }
 
     // Hash password and save user
@@ -52,13 +51,11 @@ let userController = async (req, res) => {
       { expiresIn: "5d" }
     );
 
-    return res
-      .status(201)
-      .send({
-        status: "Success",
-        message: "Registration successfull",
-        token: token,
-      });
+    return res.status(201).send({
+      status: "Success",
+      message: "Registration successfull",
+      token: token,
+    });
   } catch (error) {
     console.error(error); // Log error for debugging
     return res
@@ -85,20 +82,16 @@ export let userLogin = async (req, res) => {
             { expiresIn: "5d" }
           );
 
-          res
-            .status(201)
-            .send({
-              status: "Success",
-              message: "Login successfully",
-              token: token,
-            });
+          res.status(201).send({
+            status: "Success",
+            message: "Login successfully",
+            token: token,
+          });
         } else {
-          res
-            .status(400)
-            .send({
-              status: "Failed",
-              message: "Password or Email Doesn't match",
-            });
+          res.status(400).send({
+            status: "Failed",
+            message: "Password or Email Doesn't match",
+          });
         }
       } else {
         res
@@ -121,12 +114,10 @@ export let changeUserPassword = async (req, res) => {
   const { password, password_confirmation } = req.body;
   if (password && password_confirmation) {
     if (password !== password_confirmation) {
-      res
-        .status(400)
-        .send({
-          status: "Failed",
-          message: "New password and Confrim password Doesn't Match",
-        });
+      res.status(400).send({
+        status: "Failed",
+        message: "New password and Confrim password Doesn't Match",
+      });
     } else {
       const salt = await bcrypt.genSalt(10);
       const newHashPassword = await bcrypt.hash(password, salt);
@@ -146,3 +137,80 @@ export let changeUserPassword = async (req, res) => {
       .send({ status: "Failed", message: "All Fields are required" });
   }
 };
+
+export let loggedUser = (req, res) => {
+  res.send({ user: req.user });
+};
+
+// Send Password Reset Link To the registered email
+export let sendUserPasswordResetEmail = async (req, res) => {
+  let { email } = req.body;
+  if (email) {
+    const user = await userModel.findOne({ email: email });
+    if (user) {
+      const secret = user._id + process.env.JWT_SECRET_KEY;
+      const token = jwt.sign({ user_ID: user._id }, secret, {
+        expiresIn: "15m",
+      });
+      const link = `http:127.0.0.1:3000/user/reset/${user._id}/${token}`
+      // console.log(link)
+
+      //Send Email to user for reset Password
+      let info = await transporter.sendMail({
+        from : 'haidar',
+        to : user.email,
+        subject : `EXPRESS_AUTH_JWT - Reset Link`,
+        html : `<a href = ${link}>Click</a>here to reset Your Password`
+      })
+
+      res
+        .status(201)
+        .send({
+          status: "Success",
+          message: "Password Reset link sent Successfully to the email Please Check your Email", info,
+        });
+    } else {
+      res
+        .status(400)
+        .send({ status: "falied", message: "Enter Valid Email id or Sign up" });
+    }
+  } else {
+    res
+      .status(400)
+      .send({ status: "falied", message: "All fields are Required" });
+  }
+};
+
+// Reseting the User password and saving in database
+
+export let userPasswordReset = async (req,res) => {
+  const {password, password_confirmation} = req.body
+  const {id, token} = req.params
+  const user = await userModel.findById(id)
+  const newSecret = user._id + process.env.JWT_SECRET_KEY
+  try {
+    jwt.verify(token,newSecret)
+    if(password && password_confirmation){
+      if(password !== password_confirmation){
+        res
+      .status(400)
+      .send({ status: "falied", message: "Password and Confirm password is not same" });
+      }else{
+        const  salt = await bcrypt.genSalt(10)
+        const newHashPassword = await bcrypt.hash(password, salt)
+        await userModel.findByIdAndUpdate(user._id,{$set:{password : newHashPassword}})
+        res
+      .status(201)
+      .send({ status: "Success", message: "Password Reset Successfully" });
+      }
+    }else{
+      res
+      .status(400)
+      .send({ status: "falied", message: "All fields are Required" });
+    }
+  } catch (error) {
+    
+  }
+
+
+}
